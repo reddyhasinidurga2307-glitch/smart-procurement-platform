@@ -1,4 +1,6 @@
-const API_URL = "http://127.0.0.1:8000/api/message";
+const CORE_API_URL = "http://127.0.0.1:8000";
+const API_URL = "http://127.0.0.1:8001/api/message";
+
 const REQUEST_TIMEOUT_MS = 30000;
 
 export async function sendMessage(message, sessionId) {
@@ -46,4 +48,33 @@ export async function sendMessage(message, sessionId) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+export async function createProcurement(procurementData) {
+  const response = await fetch(`${CORE_API_URL}/procurements/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(procurementData),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.detail || "Failed to create procurement.");
+  }
+
+  return data;
+}
+
+export async function getProcurements() {
+  const response = await fetch(`${CORE_API_URL}/procurements/`);
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch procurements.");
+  }
+
+  return data;
 }

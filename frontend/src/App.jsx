@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000/api/message";
+const API_URL = "http://127.0.0.1:8001/api/message";
+const CORE_API_URL = "http://127.0.0.1:8000";
+const AI_API_URL = "http://127.0.0.1:8002";
 const API_TIMEOUT_MS = 20000;
 
 function App() {
@@ -54,6 +56,7 @@ function App() {
       {page === "track" && (
         <TrackPage goTo={goTo} sessionId={sessionId} />
       )}
+      {page === "booking" && <BookSlotPage />}
       {page === "voice" && (
         <VoicePage goTo={goTo} sessionId={sessionId} />
       )}
@@ -168,6 +171,12 @@ function Header({ goTo, activePage }) {
           onClick={() => goTo("track")}
         >
           Track
+        </button>
+        <button
+          className={activePage === "booking" ? "nav-active" : ""}
+          onClick={() => goTo("booking")}
+        >
+          Book Slot
         </button>
 
         <button
@@ -508,6 +517,10 @@ function SellPage({ goTo, sessionId }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [aiRecommendation, setAiRecommendation] = useState(null);
+  const [rescheduleId, setRescheduleId] = useState("");
+  const [newBookingDate, setNewBookingDate] = useState("");
+  const [rescheduleMessage, setRescheduleMessage] = useState("");
 
   const submitSell = async (event) => {
     event.preventDefault();
@@ -542,6 +555,31 @@ function SellPage({ goTo, sessionId }) {
       const message = `I want to sell ${quantity} kg of ${form.product} from ${form.location} my name is ${form.name}`;
 
       const data = await sendMessage(message, sessionId);
+
+      if (data.success) {
+        const procurementResponse = await fetch(`${CORE_API_URL}/procurements/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            procurement_id: `PROC${Date.now()}`,
+            farmer_id: form.name,
+            crop_name: form.product,
+            quantity_kg: quantity,
+            quality_grade: "A",
+            price_per_kg: 0,
+            centre_id: "CENTRE001",
+          }),
+        });
+
+        if (!procurementResponse.ok) {
+          const procurementError = await procurementResponse.json().catch(() => ({}));
+          throw new Error(
+            procurementError?.detail || "Procurement record could not be created."
+          );
+        }
+      }
 
       if (!data.success && data.message) {
         setError(data.message);
@@ -681,6 +719,21 @@ function BuyPage({ goTo, sessionId }) {
 
       const data = await sendMessage(message, sessionId);
 
+      await fetch(`${CORE_API_URL}/procurements/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          procurement_id: `PROC${Date.now()}`,
+          farmer_id: form.name,
+          crop_name: form.product,
+          quantity_kg: quantity,
+          quality_grade: "A",
+          price_per_kg: 0,
+          centre_id: "CENTRE001",
+        }),
+      });
       if (!data.success && data.message) {
         setError(data.message);
       } else {
@@ -1034,7 +1087,418 @@ function AccessResult({ result }) {
 /* ============================================================
    TRACK
 ============================================================ */
+function BookSlotPage() {
+  const [rescheduleId, setRescheduleId] = useState("");
+  const [newBookingDate, setNewBookingDate] = useState("");
+  const [rescheduleMessage, setRescheduleMessage] = useState("");
 
+  const [form, setForm] = useState({
+    farmer_name: "",
+    crop: "",
+    quantity: "",
+    booking_date: "",
+  });
+
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [aiRecommendation, setAiRecommendation] = useState(null);
+
+  async function handleBooking(e) {
+    e.preventDefault();
+    setError("");
+    setResult(null);
+
+    try {
+      const response = await fetch(`${CORE_API_URL}/booking/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          farmer_name: form.farmer_name,
+          crop: form.crop,
+          quantity: Number(form.quantity),
+          booking_date: form.booking_date,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.detail || "Booking failed.");
+      }
+
+      setResult(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function getAIRecommendation() {
+    setError("");
+    setAiRecommendation(null);
+
+    try {
+      const response = await fetch(
+        `${AI_API_URL}/predict/smart-slot`,
+        {
+          method: "POST",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || "AI recommendation failed."
+        );
+      }
+
+      setAiRecommendation(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleReschedule(e) {
+    e.preventDefault();
+    setRescheduleMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${CORE_API_URL}/booking/reschedule`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            booking_id: Number(rescheduleId),
+            new_booking_date: newBookingDate,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || "Rescheduling failed."
+        );
+      }
+
+      if (data.message) {
+        setRescheduleMessage(data.message);
+      } else {
+        setRescheduleMessage(
+          "Booking rescheduled successfully."
+        );
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function viewAlternativeSlots() {
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${CORE_API_URL}/booking/alternatives?requested_date=2026-09-17`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail || "Failed to load alternative slots."
+        );
+      }
+
+      alert(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="page">
+      <div className="form-card">
+        <h1>Book Procurement Slot</h1>
+
+        <p>
+          Reserve a slot at the procurement centre.
+        </p>
+
+        {/* BOOK SLOT */}
+
+        <form onSubmit={handleBooking}>
+          <input
+            type="text"
+            placeholder="Farmer Name"
+            value={form.farmer_name}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                farmer_name: e.target.value,
+              })
+            }
+            required
+          />
+
+          <input
+            type="text"
+            placeholder="Crop"
+            value={form.crop}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                crop: e.target.value,
+              })
+            }
+            required
+          />
+
+          <input
+            type="number"
+            placeholder="Quantity (kg)"
+            value={form.quantity}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                quantity: e.target.value,
+              })
+            }
+            min="1"
+            required
+          />
+
+          <input
+            type="date"
+            value={form.booking_date}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                booking_date: e.target.value,
+              })
+            }
+            required
+          />
+
+          <button type="submit">
+            Book Slot
+          </button>
+        </form>
+
+        {/* ERROR */}
+
+        {error && (
+          <p
+            style={{
+              color: "red",
+              marginTop: "15px",
+            }}
+          >
+            {error}
+          </p>
+        )}
+
+        {/* BOOKING RESULT */}
+
+        {result && (
+          <div className="result-card">
+            <h2>
+              Booking Confirmed ✓
+            </h2>
+
+            <p>
+              <strong>Booking ID:</strong>{" "}
+              {result.booking_id}
+            </p>
+
+            <p>
+              <strong>Confirmation Token:</strong>{" "}
+              {result.confirmation_token}
+            </p>
+
+            <p>
+              <strong>Farmer:</strong>{" "}
+              {result.farmer_name}
+            </p>
+
+            <p>
+              <strong>Crop:</strong>{" "}
+              {result.crop}
+            </p>
+
+            <p>
+              <strong>Quantity:</strong>{" "}
+              {result.quantity} kg
+            </p>
+
+            <p>
+              <strong>Date:</strong>{" "}
+              {result.booking_date}
+            </p>
+
+            <p>
+              <strong>Status:</strong>{" "}
+              {result.status}
+            </p>
+          </div>
+        )}
+
+        {/* RESCHEDULE */}
+
+        <div
+          style={{
+            marginTop: "30px",
+          }}
+        >
+          <h2>
+            Reschedule Booking
+          </h2>
+
+          <p>
+            Change the date of an existing booking.
+          </p>
+
+          <form onSubmit={handleReschedule}>
+            <input
+              type="number"
+              placeholder="Booking ID"
+              value={rescheduleId}
+              onChange={(e) =>
+                setRescheduleId(e.target.value)
+              }
+              min="1"
+              required
+            />
+
+            <input
+              type="date"
+              value={newBookingDate}
+              onChange={(e) =>
+                setNewBookingDate(e.target.value)
+              }
+              required
+            />
+
+            <button type="submit">
+              Reschedule
+            </button>
+          </form>
+
+          {rescheduleMessage && (
+            <p
+              style={{
+                marginTop: "15px",
+                color: "green",
+              }}
+            >
+              {rescheduleMessage}
+            </p>
+          )}
+        </div>
+
+        {/* ALTERNATIVE SLOTS + AI */}
+
+        <div
+          style={{
+            marginTop: "30px",
+          }}
+        >
+          <h2>
+            Alternative Slots
+          </h2>
+
+          <p>
+            View other available procurement slots.
+          </p>
+
+          <button
+            type="button"
+            onClick={viewAlternativeSlots}
+          >
+            View Alternative Slots
+          </button>
+
+          <button
+            type="button"
+            onClick={getAIRecommendation}
+          >
+            Get AI Recommended Slot
+          </button>
+        </div>
+
+        {/* AI RECOMMENDATION RESULT */}
+
+        {aiRecommendation && (
+          <div
+            style={{
+              marginTop: "30px",
+            }}
+          >
+            <h2>
+              AI Recommended Slot
+            </h2>
+
+            <p>
+              <strong>
+                Recommended Slot:
+              </strong>{" "}
+              {aiRecommendation.recommended_slot}
+            </p>
+
+            <p>
+              <strong>
+                Predicted Arrivals:
+              </strong>{" "}
+              {aiRecommendation.predicted_arrivals}
+            </p>
+
+            <p>
+              <strong>
+                Predicted Queue:
+              </strong>{" "}
+              {aiRecommendation.predicted_queue}
+            </p>
+
+            <p>
+              <strong>
+                Predicted Waiting Time:
+              </strong>{" "}
+              {aiRecommendation.predicted_waiting_time}{" "}
+              minutes
+            </p>
+
+            <p>
+              <strong>
+                Congestion:
+              </strong>{" "}
+              {aiRecommendation.congestion_level}
+            </p>
+
+            <p>
+              <strong>
+                Congestion Score:
+              </strong>{" "}
+              {aiRecommendation.congestion_score}
+            </p>
+
+            <p>
+              <strong>
+                Slot Score:
+              </strong>{" "}
+              {aiRecommendation.slot_score}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 function TrackPage({ goTo, sessionId }) {
   const [requestId, setRequestId] = useState("");
   const [result, setResult] = useState(null);
@@ -1355,14 +1819,13 @@ function VoicePage({ goTo, sessionId }) {
             {isListening
               ? "Listening... speak now"
               : processing
-              ? "GrainFlow is processing your request..."
-              : "Press the microphone and speak"}
+                ? "GrainFlow is processing your request..."
+                : "Press the microphone and speak"}
           </div>
 
           <button
-            className={`voice-start-button ${
-              isListening ? "voice-stop" : ""
-            }`}
+            className={`voice-start-button ${isListening ? "voice-stop" : ""
+              }`}
             onClick={isListening ? stopListening : startListening}
             disabled={!supported || processing}
             aria-label={isListening ? "Stop listening" : "Start voice assistant"}
@@ -1662,9 +2125,8 @@ function StatusJourney({ status }) {
 
           return (
             <div
-              className={`status-track-item ${
-                active ? "completed-step" : ""
-              }`}
+              className={`status-track-item ${active ? "completed-step" : ""
+                }`}
               key={item}
             >
               <div className="status-circle">
@@ -1758,29 +2220,29 @@ function DashboardPage({ dashboardData, centreData, alertsData }) {
 
 
         {/* Statistics */}
-<div className="stats">
+        <div className="stats">
 
-  <div className="card">
-    <h3>Today's Farmers</h3>
-    <p>{dashboardData ? dashboardData.todays_farmers : "..."}</p>
-  </div>
+          <div className="card">
+            <h3>Today's Farmers</h3>
+            <p>{dashboardData ? dashboardData.todays_farmers : "..."}</p>
+          </div>
 
-  <div className="card">
-    <h3>Upcoming Appointments</h3>
-    <p>{dashboardData ? dashboardData.upcoming_appointments : "..."}</p>
-  </div>
+          <div className="card">
+            <h3>Upcoming Appointments</h3>
+            <p>{dashboardData ? dashboardData.upcoming_appointments : "..."}</p>
+          </div>
 
-  <div className="card">
-    <h3>Current Queue</h3>
-    <p>{dashboardData ? dashboardData.current_queue : "..."}</p>
-  </div>
+          <div className="card">
+            <h3>Current Queue</h3>
+            <p>{dashboardData ? dashboardData.current_queue : "..."}</p>
+          </div>
 
-  <div className="card">
-    <h3>Average Waiting Time</h3>
-    <p>{dashboardData ? `${dashboardData.average_waiting_time} min` : "..."}</p>
-  </div>
+          <div className="card">
+            <h3>Average Waiting Time</h3>
+            <p>{dashboardData ? `${dashboardData.average_waiting_time} min` : "..."}</p>
+          </div>
 
-</div>
+        </div>
 
 
         {/* Appointments */}
@@ -1851,441 +2313,441 @@ function DashboardPage({ dashboardData, centreData, alertsData }) {
         <div className="bottom-section">
 
           {/* Centre Status */}
-<div className="status-panel">
+          <div className="status-panel">
 
-  <h2>🏢 Centre Status</h2>
+            <h2>🏢 Centre Status</h2>
 
-  <div className="status-item">
-    <span>Queue Status</span>
-    <strong className="active-text">Active</strong>
-  </div>
+            <div className="status-item">
+              <span>Queue Status</span>
+              <strong className="active-text">Active</strong>
+            </div>
 
-  <div className="status-item">
-    <span>Available Counters</span>
-    <strong>3 / 4</strong>
-  </div>
+            <div className="status-item">
+              <span>Available Counters</span>
+              <strong>3 / 4</strong>
+            </div>
 
-  <div className="status-item">
-    <span>Expected Arrivals</span>
-    <strong>
-      {dashboardData ? dashboardData.expected_arrivals : "..."}
-    </strong>
-  </div>
+            <div className="status-item">
+              <span>Expected Arrivals</span>
+              <strong>
+                {dashboardData ? dashboardData.expected_arrivals : "..."}
+              </strong>
+            </div>
 
-  <div className="status-item">
-    <span>Congestion Level</span>
-    <strong className="medium-text">
-      {dashboardData ? dashboardData.congestion_level : "..."}
-    </strong>
-  </div>
+            <div className="status-item">
+              <span>Congestion Level</span>
+              <strong className="medium-text">
+                {dashboardData ? dashboardData.congestion_level : "..."}
+              </strong>
+            </div>
 
-</div>
+          </div>
 
 
           {/* Procurement Progress */}
-<div className="progress-panel">
+          <div className="progress-panel">
 
-  <h2>🌾 Procurement Progress</h2>
+            <h2>🌾 Procurement Progress</h2>
 
-  <div className="progress-info">
-    <span>Daily Target</span>
-    <strong>
-      {dashboardData ? `${dashboardData.daily_target} Quintals` : "..."}
-    </strong>
-  </div>
+            <div className="progress-info">
+              <span>Daily Target</span>
+              <strong>
+                {dashboardData ? `${dashboardData.daily_target} Quintals` : "..."}
+              </strong>
+            </div>
 
-  <div className="progress-info">
-    <span>Procured</span>
-    <strong>
-      {dashboardData ? `${dashboardData.procured} Quintals` : "..."}
-    </strong>
-  </div>
+            <div className="progress-info">
+              <span>Procured</span>
+              <strong>
+                {dashboardData ? `${dashboardData.procured} Quintals` : "..."}
+              </strong>
+            </div>
 
-  <div className="progress-bar">
-    <div
-      className="progress-fill"
-      style={{
-        width: dashboardData
-          ? `${Math.round(
-              (dashboardData.procured / dashboardData.daily_target) * 100
-            )}%`
-          : "0%",
-      }}
-    ></div>
-  </div>
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{
+                  width: dashboardData
+                    ? `${Math.round(
+                      (dashboardData.procured / dashboardData.daily_target) * 100
+                    )}%`
+                    : "0%",
+                }}
+              ></div>
+            </div>
 
-  <p className="progress-text">
-    {dashboardData
-      ? `${Math.round(
-          (dashboardData.procured / dashboardData.daily_target) * 100
-        )}% of today's target completed`
-      : "..."}
-  </p>
+            <p className="progress-text">
+              {dashboardData
+                ? `${Math.round(
+                  (dashboardData.procured / dashboardData.daily_target) * 100
+                )}% of today's target completed`
+                : "..."}
+            </p>
 
-  <div className="progress-info">
-    <span>Remaining</span>
-    <strong>
-      {dashboardData ? `${dashboardData.remaining} Quintals` : "..."}
-    </strong>
-  </div>
+            <div className="progress-info">
+              <span>Remaining</span>
+              <strong>
+                {dashboardData ? `${dashboardData.remaining} Quintals` : "..."}
+              </strong>
+            </div>
 
-</div>
+          </div>
 
         </div>
 
         {/* Queue Management */}
-<div className="queue-section">
-
-  <h2>🎟️ Queue Management</h2>
-
-  <div className="queue-summary">
-
-    <div className="queue-card">
-      <span>Current Token</span>
-      <strong>#103</strong>
-    </div>
-
-    <div className="queue-card">
-      <span>Now Processing</span>
-      <strong>Ravi Krishna</strong>
-    </div>
-
-    <div className="queue-card">
-      <span>Waiting Farmers</span>
-      <strong>
-        {dashboardData ? dashboardData.current_queue : "..."}
-      </strong>
-    </div>
-
-    <div className="queue-card">
-      <span>Estimated Wait</span>
-      <strong>
-        {dashboardData
-          ? `${dashboardData.average_waiting_time} min`
-          : "..."}
-      </strong>
-    </div>
-
-  </div>
-
-  <h3>Live Queue</h3>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Token</th>
-        <th>Farmer</th>
-        <th>Crop</th>
-        <th>Counter</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-
-    <tbody>
-      <tr>
-        <td>#101</td>
-        <td>Ramesh Kumar</td>
-        <td>Rice</td>
-        <td>Counter 1</td>
-        <td><strong>Waiting</strong></td>
-      </tr>
-
-      <tr>
-        <td>#102</td>
-        <td>Suresh Rao</td>
-        <td>Wheat</td>
-        <td>Counter 3</td>
-        <td><strong>Completed</strong></td>
-      </tr>
-
-      <tr>
-        <td>#103</td>
-        <td>Ravi Krishna</td>
-        <td>Rice</td>
-        <td>Counter 2</td>
-        <td><strong>Processing</strong></td>
-      </tr>
-
-      <tr>
-        <td>#104</td>
-        <td>Venkat Rao</td>
-        <td>Maize</td>
-        <td>Counter 1</td>
-        <td><strong>Waiting</strong></td>
-      </tr>
-    </tbody>
-  </table>
-
-</div>
-{/* Congestion & AI Prediction */}
-<div className="prediction-section">
-
-  <h2>🚨 Congestion & AI Prediction</h2>
-
-  <div className="prediction-grid">
-
-    <div className="prediction-card">
-      <span>Current Congestion</span>
-      <strong className="medium-text">
-        {dashboardData ? dashboardData.congestion_level : "..."}
-      </strong>
-      <p>Queue is manageable</p>
-    </div>
-
-    <div className="prediction-card">
-      <span>Expected Arrivals</span>
-      <strong>
-        {dashboardData
-          ? `${dashboardData.expected_arrivals} Farmers`
-          : "..."}
-      </strong>
-      <p>Expected today</p>
-    </div>
-
-    <div className="prediction-card">
-      <span>Predicted Waiting Time</span>
-      <strong>
-        {dashboardData
-          ? `${dashboardData.average_waiting_time} min`
-          : "..."}
-      </strong>
-      <p>Based on current queue</p>
-    </div>
-
-    <div className="prediction-card">
-      <span>Peak Time</span>
-      <strong>10 AM - 12 PM</strong>
-      <p>High farmer arrivals expected</p>
-    </div>
-
-  </div>
-
-  <div className="ai-recommendation">
-    <h3>🤖 AI Recommendation</h3>
-    <p>
-      Consider opening an additional procurement counter during
-      peak hours to reduce waiting time and congestion.
-    </p>
-  </div>
-
-</div>
-
-{/* Government / Admin Dashboard */}
-<div className="admin-section">
-
-  <h2>🏛️ Government / Admin Dashboard</h2>
-
-  <p className="admin-subtitle">
-    Monitor procurement centres, farmers, queues and overall performance
-  </p>
-
-  {/* Admin Statistics */}
-  <div className="admin-stats">
-
-    <div className="admin-card">
-      <span>Total Centres</span>
-      <strong>24</strong>
-    </div>
-
-    <div className="admin-card">
-      <span>Total Farmers</span>
-      <strong>2,450</strong>
-    </div>
-
-    <div className="admin-card">
-      <span>Total Procurement</span>
-      <strong>18,750 Q</strong>
-    </div>
-
-    <div className="admin-card">
-      <span>Avg. Waiting Time</span>
-      <strong>28 min</strong>
-    </div>
-
-  </div>
-
-  {/* Centre-wise Performance */}
-  <div className="centre-performance">
-
-    <h3>📊 Centre-wise Performance</h3>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Centre</th>
-          <th>Farmers</th>
-          <th>Queue</th>
-          <th>Procurement</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-
-     <tbody>
-  {centreData.map((centre, index) => (
-    <tr key={index}>
-      <td>{centre.centre}</td>
-      <td>{centre.farmers}</td>
-      <td>{centre.queue}</td>
-      <td>{centre.procurement} Q</td>
-      <td>{centre.status}</td>
-    </tr>
-  ))}
-</tbody>
-    </table>
-
-  </div>
-
-{/* System Alerts */}
-<div className="system-alerts">
-
-  <h3>🚨 System Alerts</h3>
-
-  {alertsData.map((alert, index) => (
-    <div className="alert-item" key={index}>
-      <strong>
-        {alert.type === "warning" ? "⚠️" : "🤖"} {alert.title}
-      </strong>
-
-      <p>{alert.message}</p>
-    </div>
-  ))}
-
-</div>
-
-</div>
-{/* Reports & Analytics */}
-<div className="reports-section">
-
-  <h2>📊 Reports & Analytics</h2>
-
-  <p className="reports-subtitle">
-    Analyse procurement, farmer visits and queue performance
-  </p>
-
-  <div className="report-grid">
-
-    <div className="report-card">
-      <span>Daily Procurement</span>
-      <strong>
-        {dashboardData ? `${dashboardData.procured} Q` : "..."}
-      </strong>
-      <p>
-        {dashboardData
-          ? `${Math.round(
-              (dashboardData.procured / dashboardData.daily_target) * 100
-            )}% of daily target`
-          : "..."}
-      </p>
-    </div>
-
-    <div className="report-card">
-      <span>Farmer Visits</span>
-      <strong>
-        {dashboardData ? dashboardData.todays_farmers : "..."}
-      </strong>
-      <p>Farmers served today</p>
-    </div>
-
-    <div className="report-card">
-      <span>Average Waiting Time</span>
-      <strong>
-        {dashboardData
-          ? `${dashboardData.average_waiting_time} min`
-          : "..."}
-      </strong>
-      <p>Based on current queue</p>
-    </div>
-
-    <div className="report-card">
-      <span>Queue Efficiency</span>
-      <strong>86%</strong>
-      <p>Good performance</p>
-    </div>
-
-  </div>
-
-  {/* Procurement Summary */}
-  <div className="report-table">
-
-    <h3>🌾 Procurement Summary</h3>
-
-    <table>
-
-      <thead>
-        <tr>
-          <th>Centre</th>
-          <th>Procurement</th>
-          <th>Target</th>
-          <th>Achievement</th>
-        </tr>
-      </thead>
-
-      <tbody>
-
-        <tr>
-          <td>Bhimavaram Centre</td>
-          <td>720 Q</td>
-          <td>1000 Q</td>
-          <td>72%</td>
-        </tr>
-
-        <tr>
-          <td>Tanuku Centre</td>
-          <td>650 Q</td>
-          <td>900 Q</td>
-          <td>72%</td>
-        </tr>
-
-        <tr>
-          <td>Palakollu Centre</td>
-          <td>810 Q</td>
-          <td>1000 Q</td>
-          <td>81%</td>
-        </tr>
-
-        <tr>
-          <td>Narasapur Centre</td>
-          <td>590 Q</td>
-          <td>850 Q</td>
-          <td>69%</td>
-        </tr>
-
-      </tbody>
-
-    </table>
-
-  </div>
-
-  {/* Performance Indicators */}
-  <div className="performance-indicators">
-
-    <h3>📈 Performance Indicators</h3>
-
-    <div className="indicator-item">
-      <span>Procurement Target Achievement</span>
-
-      <strong>
-        {dashboardData
-          ? `${Math.round(
-              (dashboardData.procured / dashboardData.daily_target) * 100
-            )}%`
-          : "..."}
-      </strong>
-    </div>
-
-    <div className="indicator-item">
-      <span>Queue Efficiency</span>
-      <strong>86%</strong>
-    </div>
-
-    <div className="indicator-item">
-      <span>Centre Utilization</span>
-      <strong>78%</strong>
-    </div>
-
-  </div>
-
-</div>
+        <div className="queue-section">
+
+          <h2>🎟️ Queue Management</h2>
+
+          <div className="queue-summary">
+
+            <div className="queue-card">
+              <span>Current Token</span>
+              <strong>#103</strong>
+            </div>
+
+            <div className="queue-card">
+              <span>Now Processing</span>
+              <strong>Ravi Krishna</strong>
+            </div>
+
+            <div className="queue-card">
+              <span>Waiting Farmers</span>
+              <strong>
+                {dashboardData ? dashboardData.current_queue : "..."}
+              </strong>
+            </div>
+
+            <div className="queue-card">
+              <span>Estimated Wait</span>
+              <strong>
+                {dashboardData
+                  ? `${dashboardData.average_waiting_time} min`
+                  : "..."}
+              </strong>
+            </div>
+
+          </div>
+
+          <h3>Live Queue</h3>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Farmer</th>
+                <th>Crop</th>
+                <th>Counter</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td>#101</td>
+                <td>Ramesh Kumar</td>
+                <td>Rice</td>
+                <td>Counter 1</td>
+                <td><strong>Waiting</strong></td>
+              </tr>
+
+              <tr>
+                <td>#102</td>
+                <td>Suresh Rao</td>
+                <td>Wheat</td>
+                <td>Counter 3</td>
+                <td><strong>Completed</strong></td>
+              </tr>
+
+              <tr>
+                <td>#103</td>
+                <td>Ravi Krishna</td>
+                <td>Rice</td>
+                <td>Counter 2</td>
+                <td><strong>Processing</strong></td>
+              </tr>
+
+              <tr>
+                <td>#104</td>
+                <td>Venkat Rao</td>
+                <td>Maize</td>
+                <td>Counter 1</td>
+                <td><strong>Waiting</strong></td>
+              </tr>
+            </tbody>
+          </table>
+
+        </div>
+        {/* Congestion & AI Prediction */}
+        <div className="prediction-section">
+
+          <h2>🚨 Congestion & AI Prediction</h2>
+
+          <div className="prediction-grid">
+
+            <div className="prediction-card">
+              <span>Current Congestion</span>
+              <strong className="medium-text">
+                {dashboardData ? dashboardData.congestion_level : "..."}
+              </strong>
+              <p>Queue is manageable</p>
+            </div>
+
+            <div className="prediction-card">
+              <span>Expected Arrivals</span>
+              <strong>
+                {dashboardData
+                  ? `${dashboardData.expected_arrivals} Farmers`
+                  : "..."}
+              </strong>
+              <p>Expected today</p>
+            </div>
+
+            <div className="prediction-card">
+              <span>Predicted Waiting Time</span>
+              <strong>
+                {dashboardData
+                  ? `${dashboardData.average_waiting_time} min`
+                  : "..."}
+              </strong>
+              <p>Based on current queue</p>
+            </div>
+
+            <div className="prediction-card">
+              <span>Peak Time</span>
+              <strong>10 AM - 12 PM</strong>
+              <p>High farmer arrivals expected</p>
+            </div>
+
+          </div>
+
+          <div className="ai-recommendation">
+            <h3>🤖 AI Recommendation</h3>
+            <p>
+              Consider opening an additional procurement counter during
+              peak hours to reduce waiting time and congestion.
+            </p>
+          </div>
+
+        </div>
+
+        {/* Government / Admin Dashboard */}
+        <div className="admin-section">
+
+          <h2>🏛️ Government / Admin Dashboard</h2>
+
+          <p className="admin-subtitle">
+            Monitor procurement centres, farmers, queues and overall performance
+          </p>
+
+          {/* Admin Statistics */}
+          <div className="admin-stats">
+
+            <div className="admin-card">
+              <span>Total Centres</span>
+              <strong>24</strong>
+            </div>
+
+            <div className="admin-card">
+              <span>Total Farmers</span>
+              <strong>2,450</strong>
+            </div>
+
+            <div className="admin-card">
+              <span>Total Procurement</span>
+              <strong>18,750 Q</strong>
+            </div>
+
+            <div className="admin-card">
+              <span>Avg. Waiting Time</span>
+              <strong>28 min</strong>
+            </div>
+
+          </div>
+
+          {/* Centre-wise Performance */}
+          <div className="centre-performance">
+
+            <h3>📊 Centre-wise Performance</h3>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Centre</th>
+                  <th>Farmers</th>
+                  <th>Queue</th>
+                  <th>Procurement</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {centreData.map((centre, index) => (
+                  <tr key={index}>
+                    <td>{centre.centre}</td>
+                    <td>{centre.farmers}</td>
+                    <td>{centre.queue}</td>
+                    <td>{centre.procurement} Q</td>
+                    <td>{centre.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+          </div>
+
+          {/* System Alerts */}
+          <div className="system-alerts">
+
+            <h3>🚨 System Alerts</h3>
+
+            {alertsData.map((alert, index) => (
+              <div className="alert-item" key={index}>
+                <strong>
+                  {alert.type === "warning" ? "⚠️" : "🤖"} {alert.title}
+                </strong>
+
+                <p>{alert.message}</p>
+              </div>
+            ))}
+
+          </div>
+
+        </div>
+        {/* Reports & Analytics */}
+        <div className="reports-section">
+
+          <h2>📊 Reports & Analytics</h2>
+
+          <p className="reports-subtitle">
+            Analyse procurement, farmer visits and queue performance
+          </p>
+
+          <div className="report-grid">
+
+            <div className="report-card">
+              <span>Daily Procurement</span>
+              <strong>
+                {dashboardData ? `${dashboardData.procured} Q` : "..."}
+              </strong>
+              <p>
+                {dashboardData
+                  ? `${Math.round(
+                    (dashboardData.procured / dashboardData.daily_target) * 100
+                  )}% of daily target`
+                  : "..."}
+              </p>
+            </div>
+
+            <div className="report-card">
+              <span>Farmer Visits</span>
+              <strong>
+                {dashboardData ? dashboardData.todays_farmers : "..."}
+              </strong>
+              <p>Farmers served today</p>
+            </div>
+
+            <div className="report-card">
+              <span>Average Waiting Time</span>
+              <strong>
+                {dashboardData
+                  ? `${dashboardData.average_waiting_time} min`
+                  : "..."}
+              </strong>
+              <p>Based on current queue</p>
+            </div>
+
+            <div className="report-card">
+              <span>Queue Efficiency</span>
+              <strong>86%</strong>
+              <p>Good performance</p>
+            </div>
+
+          </div>
+
+          {/* Procurement Summary */}
+          <div className="report-table">
+
+            <h3>🌾 Procurement Summary</h3>
+
+            <table>
+
+              <thead>
+                <tr>
+                  <th>Centre</th>
+                  <th>Procurement</th>
+                  <th>Target</th>
+                  <th>Achievement</th>
+                </tr>
+              </thead>
+
+              <tbody>
+
+                <tr>
+                  <td>Bhimavaram Centre</td>
+                  <td>720 Q</td>
+                  <td>1000 Q</td>
+                  <td>72%</td>
+                </tr>
+
+                <tr>
+                  <td>Tanuku Centre</td>
+                  <td>650 Q</td>
+                  <td>900 Q</td>
+                  <td>72%</td>
+                </tr>
+
+                <tr>
+                  <td>Palakollu Centre</td>
+                  <td>810 Q</td>
+                  <td>1000 Q</td>
+                  <td>81%</td>
+                </tr>
+
+                <tr>
+                  <td>Narasapur Centre</td>
+                  <td>590 Q</td>
+                  <td>850 Q</td>
+                  <td>69%</td>
+                </tr>
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+          {/* Performance Indicators */}
+          <div className="performance-indicators">
+
+            <h3>📈 Performance Indicators</h3>
+
+            <div className="indicator-item">
+              <span>Procurement Target Achievement</span>
+
+              <strong>
+                {dashboardData
+                  ? `${Math.round(
+                    (dashboardData.procured / dashboardData.daily_target) * 100
+                  )}%`
+                  : "..."}
+              </strong>
+            </div>
+
+            <div className="indicator-item">
+              <span>Queue Efficiency</span>
+              <strong>86%</strong>
+            </div>
+
+            <div className="indicator-item">
+              <span>Centre Utilization</span>
+              <strong>78%</strong>
+            </div>
+
+          </div>
+
+        </div>
       </main>
 
     </div>

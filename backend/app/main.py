@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.modules.dashboard.routes import router as dashboard_router
-
+from backend.app.modules.procurement.router import router as procurement_router
 from backend.app.modules.farmer.router import router as farmer_router
 from backend.app.db.database import Base, engine
 from backend.app.modules.booking.router import router as booking_router
@@ -25,7 +25,7 @@ app.add_middleware(
 app.include_router(dashboard_router)
 app.include_router(farmer_router)
 app.include_router(booking_router)
-
+app.include_router(procurement_router)
 
 @app.get("/")
 def root():

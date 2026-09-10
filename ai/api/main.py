@@ -1,20 +1,20 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import pandas as pd
+from fastapi.middleware.cors import CORSMiddleware
 
 import sys
 from pathlib import Path
 
 # Add prediction folder to Python path
 PREDICTION_DIR = Path(__file__).resolve().parents[1] / "prediction"
-sys.path.append(str(PREDICTION_DIR))
+sys.path.insert(0, str(PREDICTION_DIR))
 
-from predict_arrivals import predict_arrivals
-from predict_queue import predict_queue
-from predict_waiting_time import predict_waiting_time
-from predict_congestion import predict_congestion, get_congestion_level
-
-
+from ai.prediction.predict_arrivals import predict_arrivals
+from ai.prediction.predict_queue import predict_queue
+from ai.prediction.predict_waiting_time import predict_waiting_time
+from ai.prediction.predict_congestion import predict_congestion, get_congestion_level
+from ai.prediction.smart_slot_recommendation import recommend_slot
 # --------------------------------------------------
 # CREATE FASTAPI APP
 # --------------------------------------------------
@@ -24,7 +24,16 @@ app = FastAPI(
     description="AI Prediction and Queue Management API",
     version="1.0.0"
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --------------------------------------------------
 # HEALTH CHECK
@@ -210,3 +219,27 @@ def predict_centre_congestion(
             status_code=500,
             detail=str(e)
         )
+@app.post("/predict/smart-slot")
+def predict_smart_slot():
+    try:
+        df = pd.read_csv(
+            Path(__file__).resolve().parents[1]
+            / "data"
+            / "grainflow_features.csv"
+        )
+
+        results, best_slot = recommend_slot(df)
+
+        return {
+            "prediction_type": "smart_slot",
+            "recommended_slot": int(best_slot["time_slot"]),
+            "predicted_arrivals": float(best_slot["predicted_arrivals"]),
+            "predicted_queue": float(best_slot["predicted_queue"]),
+            "predicted_waiting_time": float(best_slot["predicted_waiting_time"]),
+            "congestion_score": float(best_slot["congestion_score"]),
+            "congestion_level": best_slot["congestion_level"],
+            "slot_score": float(best_slot["slot_score"])
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
