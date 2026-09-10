@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+google-generativeai
+SpeechRecognition
+PyAudio
+numpy
+sounddevice
+soundfile
+pyttsx3
