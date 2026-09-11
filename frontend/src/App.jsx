@@ -3,7 +3,7 @@ import "./App.css";
 
 const API_URL = "https://grainflow-farmer-access.onrender.com/api/message";
 const CORE_API_URL = "https://smart-procurement-platform-1.onrender.com";
-const AI_API_URL = "http://127.0.0.1:8002";
+const AI_API_URL = "https://grainflow-ai-api.onrender.com";
 const API_TIMEOUT_MS = 20000;
 
 function App() {
