@@ -25,7 +25,7 @@ function App() {
     Promise.all(
       dashboardEndpoints.map(async ([endpoint, setData]) => {
         const response = await fetch(
-          `http://127.0.0.1:8000/dashboard/${endpoint}`
+          `${CORE_API_URL}/dashboard/${endpoint}`
         );
         if (!response.ok) {
           throw new Error(`Dashboard ${endpoint} request failed.`);
