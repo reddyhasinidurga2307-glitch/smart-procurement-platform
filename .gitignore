@@ -29,7 +29,6 @@ npm-debug.log*
 
 # AI/ML generated data
 grainflow_historical_data.csv
-ai/data/grainflow_features.csv
 ai/data/grainflow_preprocessed.csv
 ai/evaluation/model_comparison_results.csv
 
