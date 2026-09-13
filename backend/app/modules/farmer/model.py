@@ -11,4 +11,5 @@ class Farmer(Base):
     crop = Column(String, nullable=False)
     quantity = Column(Float, nullable=False)
     location = Column(String, nullable=False)
+    kisan_id = Column(String, nullable=True, unique=True)
     status = Column(String, default="active")

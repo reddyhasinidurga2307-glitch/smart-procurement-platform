@@ -7,6 +7,7 @@ class FarmerCreate(BaseModel):
     crop: str
     quantity: float
     location: str
+    kisan_id: str | None = None
 
 
 class FarmerResponse(FarmerCreate):

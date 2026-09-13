@@ -512,8 +512,8 @@ function SellPage({ goTo, sessionId }) {
     product: "",
     quantity: "",
     location: "",
+    kisan_id: "",
   });
-
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -552,8 +552,7 @@ function SellPage({ goTo, sessionId }) {
     setLoading(true);
 
     try {
-      const message = `I want to sell ${quantity} kg of ${form.product} from ${form.location} my name is ${form.name}`;
-
+      const message = `I want to sell ${quantity} kg of ${form.product} from ${form.location} my name is ${form.name} my Kisan ID is ${form.kisan_id}`;
       const data = await sendMessage(message, sessionId);
 
       if (data.success) {
@@ -653,6 +652,14 @@ function SellPage({ goTo, sessionId }) {
             value={form.location}
             onChange={(value) =>
               setForm({ ...form, location: value })
+            }
+          />
+          <input
+            type="text"
+            placeholder="Kisan ID"
+            value={form.kisan_id}
+            onChange={(e) =>
+              setForm({ ...form, kisan_id: e.target.value })
             }
           />
         </div>

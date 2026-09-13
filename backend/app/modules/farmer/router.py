@@ -22,11 +22,12 @@ def get_db():
 @router.post("/", response_model=FarmerResponse)
 def create_farmer(farmer: FarmerCreate, db: Session = Depends(get_db)):
     new_farmer = Farmer(
-        name=farmer.name,
-        phone=farmer.phone,
-        crop=farmer.crop,
-        quantity=farmer.quantity,
-        location=farmer.location
+      name=farmer.name,
+      phone=farmer.phone,
+      crop=farmer.crop,
+      quantity=farmer.quantity,
+      location=farmer.location,
+      kisan_id=farmer.kisan_id
     )
 
     db.add(new_farmer)
