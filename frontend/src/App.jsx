@@ -4,38 +4,65 @@ import "./App.css";
 const API_URL = "https://grainflow-farmer-access.onrender.com/api/message";
 const CORE_API_URL = "https://smart-procurement-platform-1.onrender.com";
 const AI_API_URL = "https://grainflow-ai-api.onrender.com";
+const AUTH_API_URL = "https://smart-procurement-platform-1.onrender.com";
 const API_TIMEOUT_MS = 20000;
+const getTodayDate = () => {
+  const today = new Date();
+  const offset = today.getTimezoneOffset();
+  return new Date(today.getTime() - offset * 60000)
+    .toISOString()
+    .split("T")[0];
+};
 
 function App() {
   const [page, setPage] = useState("home");
+  const [farmer, setFarmer] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
   const [sessionId] = useState(
     () => `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   );
   const [dashboardData, setDashboardData] = useState(null);
   const [centreData, setCentreData] = useState([]);
   const [alertsData, setAlertsData] = useState([]);
+  const [bookingData, setBookingData] = useState([]);
 
   useEffect(() => {
-    const dashboardEndpoints = [
-      ["summary", setDashboardData],
-      ["centres", setCentreData],
-      ["alerts", setAlertsData],
-    ];
+    if (page !== "dashboard") return;
 
-    Promise.all(
-      dashboardEndpoints.map(async ([endpoint, setData]) => {
-        const response = await fetch(
-          `${CORE_API_URL}/dashboard/${endpoint}`
-        );
-        if (!response.ok) {
-          throw new Error(`Dashboard ${endpoint} request failed.`);
+    const loadDashboardData = async () => {
+      try {
+        const [summaryResponse, centresResponse, alertsResponse, bookingResponse] =
+          await Promise.all([
+            fetch(`${CORE_API_URL}/dashboard/summary`),
+            fetch(`${CORE_API_URL}/dashboard/centres`),
+            fetch(`${CORE_API_URL}/dashboard/alerts`),
+            fetch(`${CORE_API_URL}/booking/`),
+          ]);
+
+        if (!summaryResponse.ok) {
+          throw new Error("Dashboard summary request failed.");
         }
-        setData(await response.json());
-      })
-    ).catch((error) => {
-      console.error("Error fetching dashboard data:", error);
-    });
-  }, []);
+        if (!centresResponse.ok) {
+          throw new Error("Dashboard centres request failed.");
+        }
+        if (!alertsResponse.ok) {
+          throw new Error("Dashboard alerts request failed.");
+        }
+        if (!bookingResponse.ok) {
+          throw new Error("Booking data request failed.");
+        }
+
+        setDashboardData(await summaryResponse.json());
+        setCentreData(await centresResponse.json());
+        setAlertsData(await alertsResponse.json());
+        setBookingData(await bookingResponse.json());
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      }
+    };
+
+    loadDashboardData();
+  }, [page]);
 
   const goTo = (target) => {
     setPage(target);
@@ -45,8 +72,17 @@ function App() {
   return (
     <div className="app">
       <Header goTo={goTo} activePage={page} />
-
       {page === "home" && <HomePage goTo={goTo} sessionId={sessionId} />}
+      {page === "login" && (
+        <LoginPage
+          onLogin={(data) => {
+            setAccessToken(data.access_token);
+            setFarmer(data.farmer);
+            setPage("home");
+          }}
+        />
+      )}
+
       {page === "sell" && (
         <SellPage goTo={goTo} sessionId={sessionId} />
       )}
@@ -71,6 +107,7 @@ function App() {
           dashboardData={dashboardData}
           centreData={centreData}
           alertsData={alertsData}
+          bookingData={bookingData}
         />
       )}
 
@@ -134,80 +171,98 @@ async function sendMessage(message, sessionId) {
 
 function Header({ goTo, activePage }) {
   return (
-    <header className="navbar">
-      <button className="logo-button" onClick={() => goTo("home")}>
-        <span className="logo-mark">G</span>
-
-        <div className="logo-text">
-          <strong>GrainFlow</strong>
-          <small>SMART PROCUREMENT</small>
-        </div>
-      </button>
-
-      <nav className="desktop-nav">
+    <>
+      <header className="navbar">
         <button
-          className={activePage === "home" ? "nav-active" : ""}
+          className="logo-button"
           onClick={() => goTo("home")}
         >
-          Home
+          <span className="logo-mark">G</span>
+
+          <div className="logo-text">
+            <strong>GrainFlow</strong>
+            <small>SMART PROCUREMENT</small>
+          </div>
         </button>
 
-        <button
-          className={activePage === "sell" ? "nav-active" : ""}
-          onClick={() => goTo("sell")}
-        >
-          Sell
-        </button>
+        <nav className="top-nav">
+          <button
+            className={activePage === "home" ? "nav-active" : ""}
+            onClick={() => goTo("home")}
+          >
+            Home
+          </button>
 
-        <button
-          className={activePage === "buy" ? "nav-active" : ""}
-          onClick={() => goTo("buy")}
-        >
-          Buy
-        </button>
+          <button
+            className={activePage === "sell" ? "nav-active" : ""}
+            onClick={() => goTo("sell")}
+          >
+            Sell
+          </button>
 
-        <button
-          className={activePage === "track" ? "nav-active" : ""}
-          onClick={() => goTo("track")}
-        >
-          Track
-        </button>
-        <button
-          className={activePage === "booking" ? "nav-active" : ""}
-          onClick={() => goTo("booking")}
-        >
-          Book Slot
-        </button>
+          <button
+            className={activePage === "buy" ? "nav-active" : ""}
+            onClick={() => goTo("buy")}
+          >
+            Buy
+          </button>
+        </nav>
+      </header>
 
-        <button
-          className={activePage === "voice" ? "nav-active" : ""}
-          onClick={() => goTo("voice")}
-        >
-          Voice
-        </button>
-        <button
-          className={activePage === "sms" ? "nav-active" : ""}
-          onClick={() => goTo("sms")}
-        >
-          SMS
-        </button>
-        <button
-          className={activePage === "assisted" ? "nav-active" : ""}
-          onClick={() => goTo("assisted")}
-        >
-          Assisted
-        </button>
-        <button
-          className={activePage === "dashboard" ? "nav-active" : ""}
-          onClick={() => goTo("dashboard")}
-        >
-          Dashboard
-        </button>
-      </nav>
-    </header>
+      {activePage === "home" && (
+        <nav className="side-nav">
+          <button
+            className={activePage === "track" ? "nav-active" : ""}
+            onClick={() => goTo("track")}
+          >
+            <span>Track</span>
+            <span>›</span>
+          </button>
+
+          <button
+            className={activePage === "booking" ? "nav-active" : ""}
+            onClick={() => goTo("booking")}
+          >
+            <span>Book Slot</span>
+            <span>›</span>
+          </button>
+
+          <button
+            className={activePage === "voice" ? "nav-active" : ""}
+            onClick={() => goTo("voice")}
+          >
+            <span>Voice</span>
+            <span>›</span>
+          </button>
+
+          <button
+            className={activePage === "sms" ? "nav-active" : ""}
+            onClick={() => goTo("sms")}
+          >
+            <span>SMS</span>
+            <span>›</span>
+          </button>
+
+          <button
+            className={activePage === "assisted" ? "nav-active" : ""}
+            onClick={() => goTo("assisted")}
+          >
+            <span>Assisted</span>
+            <span>›</span>
+          </button>
+
+          <button
+            className={activePage === "dashboard" ? "nav-active" : ""}
+            onClick={() => goTo("dashboard")}
+          >
+            <span>Dashboard</span>
+            <span>›</span>
+          </button>
+        </nav>
+      )}
+    </>
   );
 }
-
 /* ============================================================
    HOME
 ============================================================ */
@@ -232,7 +287,12 @@ function HomePage({ goTo }) {
             GrainFlow helps farmers and buyers connect, manage procurement
             requests and track their progress.
           </p>
-
+          <div className="farmer-login-note">
+            <span>🔐</span>
+            <button onClick={() => goTo("login")}>
+              Farmer Login
+            </button>
+          </div>
           <div className="hero-actions">
             <button
               className="primary-button"
@@ -593,7 +653,7 @@ function SellPage({ goTo, sessionId }) {
   };
 
   return (
-    <main className="page">
+    <main className="page sell-page">
       <PageBack onClick={() => goTo("home")} />
 
       <PageHeader
@@ -655,6 +715,7 @@ function SellPage({ goTo, sessionId }) {
             }
           />
           <input
+            className="sell-kisan-input"
             type="text"
             placeholder="Kisan ID"
             value={form.kisan_id}
@@ -754,7 +815,7 @@ function BuyPage({ goTo, sessionId }) {
   };
 
   return (
-    <main className="page">
+    <main className="page buy-page">
       <PageBack onClick={() => goTo("home")} />
 
       <PageHeader
@@ -1115,6 +1176,16 @@ function BookSlotPage() {
     setError("");
     setResult(null);
 
+    if (!form.booking_date) {
+      setError("Please select a booking date.");
+      return;
+    }
+
+    if (form.booking_date < getTodayDate()) {
+      setError("Booking date cannot be in the past.");
+      return;
+    }
+
     try {
       const response = await fetch(`${CORE_API_URL}/booking/`, {
         method: "POST",
@@ -1171,6 +1242,15 @@ function BookSlotPage() {
     e.preventDefault();
     setRescheduleMessage("");
     setError("");
+    if (!newBookingDate) {
+      setError("Please select a new booking date.");
+      return;
+    }
+
+    if (newBookingDate < getTodayDate()) {
+      setError("Reschedule date cannot be in the past.");
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -1230,280 +1310,437 @@ function BookSlotPage() {
   }
 
   return (
-    <div className="page">
-      <div className="form-card">
-        <h1>Book Procurement Slot</h1>
+    <main className="page booking-page">
 
-        <p>
-          Reserve a slot at the procurement centre.
-        </p>
+      {/* PAGE HEADER */}
+      <section className="booking-page-header">
+        <div>
+          <span className="section-eyebrow">GRAINFLOW / BOOKING</span>
+          <h1>Book your procurement slot</h1>
+          <p>
+            Choose a convenient date and reserve your place at the
+            procurement centre.
+          </p>
+        </div>
 
-        {/* BOOK SLOT */}
+        <div className="booking-header-badge">
+          <span className="booking-badge-dot"></span>
+          Slot Booking
+        </div>
+      </section>
 
-        <form onSubmit={handleBooking}>
-          <input
-            type="text"
-            placeholder="Farmer Name"
-            value={form.farmer_name}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                farmer_name: e.target.value,
-              })
-            }
-            required
-          />
+      {/* BOOK NEW SLOT */}
+      <section className="booking-main-card">
 
-          <input
-            type="text"
-            placeholder="Crop"
-            value={form.crop}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                crop: e.target.value,
-              })
-            }
-            required
-          />
+        <div className="booking-card-header">
+          <div>
+            <span className="section-eyebrow">NEW BOOKING</span>
+            <h2>Reserve a procurement slot</h2>
+            <p>
+              Enter your details and select your preferred procurement date.
+            </p>
+          </div>
 
-          <input
-            type="number"
-            placeholder="Quantity (kg)"
-            value={form.quantity}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                quantity: e.target.value,
-              })
-            }
-            min="1"
-            required
-          />
+          <div className="booking-card-icon">
+            +
+          </div>
+        </div>
 
-          <input
-            type="date"
-            value={form.booking_date}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                booking_date: e.target.value,
-              })
-            }
-            required
-          />
+        <form
+          className="booking-form"
+          onSubmit={handleBooking}
+        >
 
-          <button type="submit">
-            Book Slot
-          </button>
+          <div className="booking-form-grid">
+
+            {/* FARMER NAME */}
+            <div className="booking-field">
+              <label htmlFor="booking-farmer-name">
+                Farmer name
+              </label>
+
+              <input
+                id="booking-farmer-name"
+                type="text"
+                placeholder="Enter farmer name"
+                value={form.farmer_name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    farmer_name: e.target.value,
+                  })
+                }
+                required
+              />
+            </div>
+
+            {/* CROP */}
+            <div className="booking-field">
+              <label htmlFor="booking-crop">
+                Crop
+              </label>
+
+              <input
+                id="booking-crop"
+                type="text"
+                placeholder="e.g. Rice, Wheat, Maize"
+                value={form.crop}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    crop: e.target.value,
+                  })
+                }
+                required
+              />
+            </div>
+
+            {/* QUANTITY */}
+            <div className="booking-field">
+              <label htmlFor="booking-quantity">
+                Quantity
+              </label>
+
+              <div className="booking-input-with-suffix">
+                <input
+                  id="booking-quantity"
+                  type="number"
+                  placeholder="Enter quantity"
+                  value={form.quantity}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      quantity: e.target.value,
+                    })
+                  }
+                  min="1"
+                  required
+                />
+
+                <span>kg</span>
+              </div>
+            </div>
+
+            {/* DATE */}
+            <div className="booking-field">
+              <label htmlFor="booking-date">
+                Preferred date
+              </label>
+
+              <input
+                id="booking-date"
+                type="date"
+                min={getTodayDate()}
+                value={form.booking_date}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    booking_date: e.target.value,
+                  })
+                }
+                required
+              />
+            </div>
+
+          </div>
+
+          <div className="booking-form-footer">
+            <span>
+              Select today or a future date for your procurement visit.
+            </span>
+
+            <button
+              className="booking-primary-button"
+              type="submit"
+            >
+              Book Procurement Slot
+              <span>→</span>
+            </button>
+          </div>
+
         </form>
 
         {/* ERROR */}
-
         {error && (
-          <p
-            style={{
-              color: "red",
-              marginTop: "15px",
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        {/* BOOKING RESULT */}
-
-        {result && (
-          <div className="result-card">
-            <h2>
-              Booking Confirmed ✓
-            </h2>
-
-            <p>
-              <strong>Booking ID:</strong>{" "}
-              {result.booking_id}
-            </p>
-
-            <p>
-              <strong>Confirmation Token:</strong>{" "}
-              {result.confirmation_token}
-            </p>
-
-            <p>
-              <strong>Farmer:</strong>{" "}
-              {result.farmer_name}
-            </p>
-
-            <p>
-              <strong>Crop:</strong>{" "}
-              {result.crop}
-            </p>
-
-            <p>
-              <strong>Quantity:</strong>{" "}
-              {result.quantity} kg
-            </p>
-
-            <p>
-              <strong>Date:</strong>{" "}
-              {result.booking_date}
-            </p>
-
-            <p>
-              <strong>Status:</strong>{" "}
-              {result.status}
-            </p>
+          <div className="booking-error">
+            <span className="booking-message-icon">!</span>
+            <div>
+              <strong>Something went wrong</strong>
+              <p>{error}</p>
+            </div>
           </div>
         )}
 
-        {/* RESCHEDULE */}
+      </section>
 
-        <div
-          style={{
-            marginTop: "30px",
-          }}
-        >
-          <h2>
-            Reschedule Booking
-          </h2>
+
+      {/* BOOKING RESULT */}
+      {result && (
+        <section className="booking-success-card">
+
+          <div className="booking-success-icon">
+            ✓
+          </div>
+
+          <div className="booking-success-content">
+
+            <span className="section-eyebrow">
+              BOOKING CONFIRMED
+            </span>
+
+            <h2>Your procurement slot is reserved</h2>
+
+            <p>
+              Keep your confirmation token for future reference.
+            </p>
+
+            <div className="booking-details-grid">
+
+              <div className="booking-detail">
+                <span>Booking ID</span>
+                <strong>{result.booking_id}</strong>
+              </div>
+
+              <div className="booking-detail">
+                <span>Confirmation Token</span>
+                <strong>{result.confirmation_token}</strong>
+              </div>
+
+              <div className="booking-detail">
+                <span>Farmer</span>
+                <strong>{result.farmer_name}</strong>
+              </div>
+
+              <div className="booking-detail">
+                <span>Crop</span>
+                <strong>{result.crop}</strong>
+              </div>
+
+              <div className="booking-detail">
+                <span>Quantity</span>
+                <strong>{result.quantity} kg</strong>
+              </div>
+
+              <div className="booking-detail">
+                <span>Date</span>
+                <strong>{result.booking_date}</strong>
+              </div>
+
+              <div className="booking-detail booking-detail-status">
+                <span>Status</span>
+                <strong>{result.status}</strong>
+              </div>
+
+            </div>
+
+          </div>
+        </section>
+      )}
+
+
+      {/* LOWER ACTIONS */}
+      <section className="booking-actions-grid">
+
+        {/* RESCHEDULE */}
+        <div className="booking-action-card">
+
+          <div className="booking-action-icon">
+            ↻
+          </div>
+
+          <span className="section-eyebrow">
+            CHANGE YOUR DATE
+          </span>
+
+          <h2>Reschedule booking</h2>
 
           <p>
-            Change the date of an existing booking.
+            Already have a booking? Change your procurement date
+            without creating a new booking.
           </p>
 
-          <form onSubmit={handleReschedule}>
-            <input
-              type="number"
-              placeholder="Booking ID"
-              value={rescheduleId}
-              onChange={(e) =>
-                setRescheduleId(e.target.value)
-              }
-              min="1"
-              required
-            />
+          <form
+            className="booking-secondary-form"
+            onSubmit={handleReschedule}
+          >
 
-            <input
-              type="date"
-              value={newBookingDate}
-              onChange={(e) =>
-                setNewBookingDate(e.target.value)
-              }
-              required
-            />
+            <div className="booking-field">
+              <label htmlFor="reschedule-id">
+                Booking ID
+              </label>
 
-            <button type="submit">
-              Reschedule
+              <input
+                id="reschedule-id"
+                type="number"
+                placeholder="Enter booking ID"
+                value={rescheduleId}
+                onChange={(e) =>
+                  setRescheduleId(e.target.value)
+                }
+                min="1"
+                required
+              />
+            </div>
+
+            <div className="booking-field">
+              <label htmlFor="reschedule-date">
+                New date
+              </label>
+
+              <input
+                id="reschedule-date"
+                type="date"
+                min={getTodayDate()}
+                value={newBookingDate}
+                onChange={(e) =>
+                  setNewBookingDate(e.target.value)
+                }
+                required
+              />
+            </div>
+
+            <button
+              className="booking-secondary-button"
+              type="submit"
+            >
+              Reschedule Booking
+              <span>→</span>
             </button>
+
           </form>
 
           {rescheduleMessage && (
-            <p
-              style={{
-                marginTop: "15px",
-                color: "green",
-              }}
-            >
+            <div className="booking-success-message">
+              <span>✓</span>
               {rescheduleMessage}
-            </p>
+            </div>
           )}
+
         </div>
 
-        {/* ALTERNATIVE SLOTS + AI */}
 
-        <div
-          style={{
-            marginTop: "30px",
-          }}
-        >
-          <h2>
-            Alternative Slots
-          </h2>
+        {/* ALTERNATIVE / AI */}
+        <div className="booking-action-card booking-ai-card">
+
+          <div className="booking-action-icon booking-ai-icon">
+            AI
+          </div>
+
+          <span className="section-eyebrow">
+            SMART SLOT ASSISTANCE
+          </span>
+
+          <h2>Find a better slot</h2>
 
           <p>
-            View other available procurement slots.
+            Explore alternative procurement slots or let GrainFlow
+            recommend a slot using AI predictions.
           </p>
 
-          <button
-            type="button"
-            onClick={viewAlternativeSlots}
-          >
-            View Alternative Slots
-          </button>
+          <div className="booking-ai-actions">
 
-          <button
-            type="button"
-            onClick={getAIRecommendation}
-          >
-            Get AI Recommended Slot
-          </button>
+            <button
+              className="booking-secondary-button"
+              type="button"
+              onClick={viewAlternativeSlots}
+            >
+              View Alternative Slots
+              <span>→</span>
+            </button>
+
+            <button
+              className="booking-ai-button"
+              type="button"
+              onClick={getAIRecommendation}
+            >
+              Get AI Recommended Slot
+              <span>✦</span>
+            </button>
+
+          </div>
+
         </div>
 
-        {/* AI RECOMMENDATION RESULT */}
+      </section>
 
-        {aiRecommendation && (
-          <div
-            style={{
-              marginTop: "30px",
-            }}
-          >
-            <h2>
-              AI Recommended Slot
-            </h2>
 
-            <p>
-              <strong>
-                Recommended Slot:
-              </strong>{" "}
-              {aiRecommendation.recommended_slot}
-            </p>
+      {/* AI RECOMMENDATION */}
+      {aiRecommendation && (
+        <section className="ai-recommendation-card">
 
-            <p>
-              <strong>
-                Predicted Arrivals:
-              </strong>{" "}
-              {aiRecommendation.predicted_arrivals}
-            </p>
+          <div className="ai-recommendation-header">
 
-            <p>
-              <strong>
-                Predicted Queue:
-              </strong>{" "}
-              {aiRecommendation.predicted_queue}
-            </p>
+            <div>
+              <span className="section-eyebrow">
+                GRAINFLOW AI
+              </span>
 
-            <p>
-              <strong>
-                Predicted Waiting Time:
-              </strong>{" "}
-              {aiRecommendation.predicted_waiting_time}{" "}
-              minutes
-            </p>
+              <h2>Recommended procurement slot</h2>
 
-            <p>
-              <strong>
-                Congestion:
-              </strong>{" "}
-              {aiRecommendation.congestion_level}
-            </p>
+              <p>
+                Based on predicted arrivals, queue conditions and
+                congestion.
+              </p>
+            </div>
 
-            <p>
-              <strong>
-                Congestion Score:
-              </strong>{" "}
-              {aiRecommendation.congestion_score}
-            </p>
+            <div className="ai-score">
+              <span>Slot Score</span>
+              <strong>{aiRecommendation.slot_score}</strong>
+            </div>
 
-            <p>
-              <strong>
-                Slot Score:
-              </strong>{" "}
-              {aiRecommendation.slot_score}
-            </p>
           </div>
-        )}
-      </div>
-    </div>
+
+
+          <div className="ai-recommendation-grid">
+
+            <div className="ai-stat">
+              <span>Recommended Slot</span>
+              <strong>
+                {aiRecommendation.recommended_slot}
+              </strong>
+            </div>
+
+            <div className="ai-stat">
+              <span>Predicted Arrivals</span>
+              <strong>
+                {aiRecommendation.predicted_arrivals}
+              </strong>
+            </div>
+
+            <div className="ai-stat">
+              <span>Predicted Queue</span>
+              <strong>
+                {aiRecommendation.predicted_queue}
+              </strong>
+            </div>
+
+            <div className="ai-stat">
+              <span>Waiting Time</span>
+              <strong>
+                {aiRecommendation.predicted_waiting_time} min
+              </strong>
+            </div>
+
+            <div className="ai-stat">
+              <span>Congestion</span>
+              <strong>
+                {aiRecommendation.congestion_level}
+              </strong>
+            </div>
+
+            <div className="ai-stat">
+              <span>Congestion Score</span>
+              <strong>
+                {aiRecommendation.congestion_score}
+              </strong>
+            </div>
+
+          </div>
+
+        </section>
+      )}
+
+    </main>
   );
 }
 function TrackPage({ goTo, sessionId }) {
@@ -2193,572 +2430,726 @@ function Footer() {
   );
 }
 
-function DashboardPage({ dashboardData, centreData, alertsData }) {
+function DashboardPage({
+  dashboardData,
+  centreData,
+  alertsData,
+  bookingData,
+}) {
+  const [dashboardSection, setDashboardSection] = useState("dashboard");
+
+  const sections = [
+    { id: "dashboard", label: "Dashboard", icon: "🏠" },
+    { id: "appointments", label: "Appointments", icon: "📅" },
+    { id: "queue", label: "Queue Management", icon: "🎟️" },
+    { id: "procurement", label: "Procurement", icon: "🌾" },
+    { id: "reports", label: "Reports", icon: "📊" },
+    { id: "settings", label: "Settings", icon: "⚙️" },
+  ];
+
+  const getBookingStatus = (booking) =>
+    String(booking?.status || "").replaceAll("_", " ");
+
+  const processingBooking =
+    bookingData.find((booking) =>
+      ["PROCESSING", "IN_PROGRESS", "SERVING"].includes(
+        String(booking?.status || "").toUpperCase()
+      )
+    ) || bookingData[0];
+
+  const targetPercentage =
+    dashboardData && Number(dashboardData.daily_target) > 0
+      ? Math.round(
+        (Number(dashboardData.procured || 0) /
+          Number(dashboardData.daily_target)) *
+        100
+      )
+      : 0;
+
   return (
-    <div className="app">
-
-      {/* Sidebar */}
+    <div className="dashboard-page">
+      {/* Dashboard Sidebar */}
       <aside className="sidebar">
-
-        <div className="logo">
-          🌾 GrainFlow
-        </div>
+        <div className="logo">🌾 GrainFlow</div>
 
         <nav>
-          <div className="nav-item active">🏠 Dashboard</div>
-          <div className="nav-item">📅 Appointments</div>
-          <div className="nav-item">🎟️ Queue Management</div>
-          <div className="nav-item">🌾 Procurement</div>
-          <div className="nav-item">📊 Reports</div>
-          <div className="nav-item">⚙️ Settings</div>
+          {sections.map((section) => (
+            <div
+              key={section.id}
+              className={`nav-item ${dashboardSection === section.id ? "active" : ""
+                }`}
+              onClick={() => setDashboardSection(section.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setDashboardSection(section.id);
+                }
+              }}
+            >
+              {section.icon} {section.label}
+            </div>
+          ))}
         </nav>
-
       </aside>
 
-
-      {/* Main Content */}
       <main className="main-content">
-
-        {/* Header */}
-        <div className="header">
-          <h1>Procurement Centre Dashboard</h1>
-          <p>Monitor farmers, appointments and procurement activities</p>
-        </div>
-
-
-        {/* Statistics */}
-        <div className="stats">
-
-          <div className="card">
-            <h3>Today's Farmers</h3>
-            <p>{dashboardData ? dashboardData.todays_farmers : "..."}</p>
-          </div>
-
-          <div className="card">
-            <h3>Upcoming Appointments</h3>
-            <p>{dashboardData ? dashboardData.upcoming_appointments : "..."}</p>
-          </div>
-
-          <div className="card">
-            <h3>Current Queue</h3>
-            <p>{dashboardData ? dashboardData.current_queue : "..."}</p>
-          </div>
-
-          <div className="card">
-            <h3>Average Waiting Time</h3>
-            <p>{dashboardData ? `${dashboardData.average_waiting_time} min` : "..."}</p>
-          </div>
-
-        </div>
-
-
-        {/* Appointments */}
-        <div className="appointments">
-
-          <h2>Today's Appointments</h2>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Farmer</th>
-                <th>Time</th>
-                <th>Token</th>
-                <th>Crop</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-
-              <tr>
-                <td>Ramesh Kumar</td>
-                <td>09:30 AM</td>
-                <td>#101</td>
-                <td>Rice</td>
-                <td>
-                  <span className="status waiting">Waiting</span>
-                </td>
-              </tr>
-
-              <tr>
-                <td>Suresh Rao</td>
-                <td>10:00 AM</td>
-                <td>#102</td>
-                <td>Wheat</td>
-                <td>
-                  <span className="status completed">Completed</span>
-                </td>
-              </tr>
-
-              <tr>
-                <td>Ravi Krishna</td>
-                <td>10:30 AM</td>
-                <td>#103</td>
-                <td>Rice</td>
-                <td>
-                  <span className="status processing">Processing</span>
-                </td>
-              </tr>
-
-              <tr>
-                <td>Venkat Rao</td>
-                <td>11:00 AM</td>
-                <td>#104</td>
-                <td>Maize</td>
-                <td>
-                  <span className="status waiting">Waiting</span>
-                </td>
-              </tr>
-
-            </tbody>
-          </table>
-
-        </div>
-
-
-        {/* Bottom Section */}
-        <div className="bottom-section">
-
-          {/* Centre Status */}
-          <div className="status-panel">
-
-            <h2>🏢 Centre Status</h2>
-
-            <div className="status-item">
-              <span>Queue Status</span>
-              <strong className="active-text">Active</strong>
+        {/* ======================================================
+            OVERVIEW / DASHBOARD
+        ====================================================== */}
+        {dashboardSection === "dashboard" && (
+          <>
+            <div className="header">
+              <h1>Procurement Centre Dashboard</h1>
+              <p>
+                Monitor farmers, appointments and procurement activities
+              </p>
             </div>
 
-            <div className="status-item">
-              <span>Available Counters</span>
-              <strong>3 / 4</strong>
+            <div className="stats">
+              <div className="card">
+                <h3>Today's Farmers</h3>
+                <p>
+                  {dashboardData ? dashboardData.todays_farmers : "..."}
+                </p>
+              </div>
+
+              <div className="card">
+                <h3>Upcoming Appointments</h3>
+                <p>
+                  {dashboardData
+                    ? dashboardData.upcoming_appointments
+                    : "..."}
+                </p>
+              </div>
+
+              <div className="card">
+                <h3>Current Queue</h3>
+                <p>
+                  {dashboardData ? dashboardData.current_queue : "..."}
+                </p>
+              </div>
+
+              <div className="card">
+                <h3>Average Waiting Time</h3>
+                <p>
+                  {dashboardData
+                    ? `${dashboardData.average_waiting_time} min`
+                    : "..."}
+                </p>
+              </div>
             </div>
 
-            <div className="status-item">
-              <span>Expected Arrivals</span>
-              <strong>
-                {dashboardData ? dashboardData.expected_arrivals : "..."}
-              </strong>
+            <div className="bottom-section">
+              <div className="status-panel">
+                <h2>🏢 Centre Status</h2>
+
+                <div className="status-item">
+                  <span>Queue Status</span>
+                  <strong className="active-text">
+                    {dashboardData ? "Active" : "..."}
+                  </strong>
+                </div>
+
+                <div className="status-item">
+                  <span>Available Counters</span>
+                  <strong>—</strong>
+                </div>
+
+                <div className="status-item">
+                  <span>Expected Arrivals</span>
+                  <strong>
+                    {dashboardData
+                      ? dashboardData.expected_arrivals
+                      : "..."}
+                  </strong>
+                </div>
+
+                <div className="status-item">
+                  <span>Congestion Level</span>
+                  <strong className="medium-text">
+                    {dashboardData
+                      ? dashboardData.congestion_level
+                      : "..."}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="progress-panel">
+                <h2>🌾 Procurement Progress</h2>
+
+                <div className="progress-info">
+                  <span>Daily Target</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.daily_target} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+
+                <div className="progress-info">
+                  <span>Procured</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.procured} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.min(targetPercentage, 100)}%` }}
+                  ></div>
+                </div>
+
+                <p className="progress-text">
+                  {dashboardData
+                    ? dashboardData.daily_target > 0
+                      ? `${targetPercentage}% of today's target completed`
+                      : "No daily target set"
+                    : "..."}
+                </p>
+
+                <div className="progress-info">
+                  <span>Remaining</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.remaining} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+              </div>
             </div>
+          </>
+        )}
 
-            <div className="status-item">
-              <span>Congestion Level</span>
-              <strong className="medium-text">
-                {dashboardData ? dashboardData.congestion_level : "..."}
-              </strong>
+        {/* ======================================================
+            APPOINTMENTS
+        ====================================================== */}
+        {dashboardSection === "appointments" && (
+          <section className="appointments">
+            <div className="header">
+              <h1>Appointments</h1>
+              <p>View the procurement bookings entered into GrainFlow.</p>
             </div>
-
-          </div>
-
-
-          {/* Procurement Progress */}
-          <div className="progress-panel">
-
-            <h2>🌾 Procurement Progress</h2>
-
-            <div className="progress-info">
-              <span>Daily Target</span>
-              <strong>
-                {dashboardData ? `${dashboardData.daily_target} Quintals` : "..."}
-              </strong>
-            </div>
-
-            <div className="progress-info">
-              <span>Procured</span>
-              <strong>
-                {dashboardData ? `${dashboardData.procured} Quintals` : "..."}
-              </strong>
-            </div>
-
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: dashboardData
-                    ? `${Math.round(
-                      (dashboardData.procured / dashboardData.daily_target) * 100
-                    )}%`
-                    : "0%",
-                }}
-              ></div>
-            </div>
-
-            <p className="progress-text">
-              {dashboardData
-                ? `${Math.round(
-                  (dashboardData.procured / dashboardData.daily_target) * 100
-                )}% of today's target completed`
-                : "..."}
-            </p>
-
-            <div className="progress-info">
-              <span>Remaining</span>
-              <strong>
-                {dashboardData ? `${dashboardData.remaining} Quintals` : "..."}
-              </strong>
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* Queue Management */}
-        <div className="queue-section">
-
-          <h2>🎟️ Queue Management</h2>
-
-          <div className="queue-summary">
-
-            <div className="queue-card">
-              <span>Current Token</span>
-              <strong>#103</strong>
-            </div>
-
-            <div className="queue-card">
-              <span>Now Processing</span>
-              <strong>Ravi Krishna</strong>
-            </div>
-
-            <div className="queue-card">
-              <span>Waiting Farmers</span>
-              <strong>
-                {dashboardData ? dashboardData.current_queue : "..."}
-              </strong>
-            </div>
-
-            <div className="queue-card">
-              <span>Estimated Wait</span>
-              <strong>
-                {dashboardData
-                  ? `${dashboardData.average_waiting_time} min`
-                  : "..."}
-              </strong>
-            </div>
-
-          </div>
-
-          <h3>Live Queue</h3>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Token</th>
-                <th>Farmer</th>
-                <th>Crop</th>
-                <th>Counter</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              <tr>
-                <td>#101</td>
-                <td>Ramesh Kumar</td>
-                <td>Rice</td>
-                <td>Counter 1</td>
-                <td><strong>Waiting</strong></td>
-              </tr>
-
-              <tr>
-                <td>#102</td>
-                <td>Suresh Rao</td>
-                <td>Wheat</td>
-                <td>Counter 3</td>
-                <td><strong>Completed</strong></td>
-              </tr>
-
-              <tr>
-                <td>#103</td>
-                <td>Ravi Krishna</td>
-                <td>Rice</td>
-                <td>Counter 2</td>
-                <td><strong>Processing</strong></td>
-              </tr>
-
-              <tr>
-                <td>#104</td>
-                <td>Venkat Rao</td>
-                <td>Maize</td>
-                <td>Counter 1</td>
-                <td><strong>Waiting</strong></td>
-              </tr>
-            </tbody>
-          </table>
-
-        </div>
-        {/* Congestion & AI Prediction */}
-        <div className="prediction-section">
-
-          <h2>🚨 Congestion & AI Prediction</h2>
-
-          <div className="prediction-grid">
-
-            <div className="prediction-card">
-              <span>Current Congestion</span>
-              <strong className="medium-text">
-                {dashboardData ? dashboardData.congestion_level : "..."}
-              </strong>
-              <p>Queue is manageable</p>
-            </div>
-
-            <div className="prediction-card">
-              <span>Expected Arrivals</span>
-              <strong>
-                {dashboardData
-                  ? `${dashboardData.expected_arrivals} Farmers`
-                  : "..."}
-              </strong>
-              <p>Expected today</p>
-            </div>
-
-            <div className="prediction-card">
-              <span>Predicted Waiting Time</span>
-              <strong>
-                {dashboardData
-                  ? `${dashboardData.average_waiting_time} min`
-                  : "..."}
-              </strong>
-              <p>Based on current queue</p>
-            </div>
-
-            <div className="prediction-card">
-              <span>Peak Time</span>
-              <strong>10 AM - 12 PM</strong>
-              <p>High farmer arrivals expected</p>
-            </div>
-
-          </div>
-
-          <div className="ai-recommendation">
-            <h3>🤖 AI Recommendation</h3>
-            <p>
-              Consider opening an additional procurement counter during
-              peak hours to reduce waiting time and congestion.
-            </p>
-          </div>
-
-        </div>
-
-        {/* Government / Admin Dashboard */}
-        <div className="admin-section">
-
-          <h2>🏛️ Government / Admin Dashboard</h2>
-
-          <p className="admin-subtitle">
-            Monitor procurement centres, farmers, queues and overall performance
-          </p>
-
-          {/* Admin Statistics */}
-          <div className="admin-stats">
-
-            <div className="admin-card">
-              <span>Total Centres</span>
-              <strong>24</strong>
-            </div>
-
-            <div className="admin-card">
-              <span>Total Farmers</span>
-              <strong>2,450</strong>
-            </div>
-
-            <div className="admin-card">
-              <span>Total Procurement</span>
-              <strong>18,750 Q</strong>
-            </div>
-
-            <div className="admin-card">
-              <span>Avg. Waiting Time</span>
-              <strong>28 min</strong>
-            </div>
-
-          </div>
-
-          {/* Centre-wise Performance */}
-          <div className="centre-performance">
-
-            <h3>📊 Centre-wise Performance</h3>
 
             <table>
               <thead>
                 <tr>
-                  <th>Centre</th>
-                  <th>Farmers</th>
-                  <th>Queue</th>
-                  <th>Procurement</th>
+                  <th>Farmer</th>
+                  <th>Date</th>
+                  <th>Token</th>
+                  <th>Crop</th>
+                  <th>Quantity</th>
                   <th>Status</th>
                 </tr>
               </thead>
 
               <tbody>
-                {centreData.map((centre, index) => (
-                  <tr key={index}>
-                    <td>{centre.centre}</td>
-                    <td>{centre.farmers}</td>
-                    <td>{centre.queue}</td>
-                    <td>{centre.procurement} Q</td>
-                    <td>{centre.status}</td>
+                {bookingData.length > 0 ? (
+                  bookingData.map((booking) => (
+                    <tr key={booking.booking_id}>
+                      <td>{booking.farmer_name}</td>
+                      <td>{booking.booking_date}</td>
+                      <td>#{booking.booking_id}</td>
+                      <td>{booking.crop}</td>
+                      <td>
+                        {booking.quantity !== undefined
+                          ? `${booking.quantity} kg`
+                          : "—"}
+                      </td>
+                      <td>
+                        <span className="status waiting">
+                          {getBookingStatus(booking)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6">No bookings available</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
+          </section>
+        )}
 
-          </div>
+        {/* ======================================================
+            QUEUE MANAGEMENT
+        ====================================================== */}
+        {dashboardSection === "queue" && (
+          <section className="queue-section">
+            <div className="header">
+              <h1>Queue Management</h1>
+              <p>Monitor the current farmer queue and waiting time.</p>
+            </div>
 
-          {/* System Alerts */}
-          <div className="system-alerts">
-
-            <h3>🚨 System Alerts</h3>
-
-            {alertsData.map((alert, index) => (
-              <div className="alert-item" key={index}>
+            <div className="queue-summary">
+              <div className="queue-card">
+                <span>Current Token</span>
                 <strong>
-                  {alert.type === "warning" ? "⚠️" : "🤖"} {alert.title}
+                  {processingBooking
+                    ? `#${processingBooking.booking_id}`
+                    : "—"}
                 </strong>
-
-                <p>{alert.message}</p>
               </div>
-            ))}
 
-          </div>
+              <div className="queue-card">
+                <span>Now Processing</span>
+                <strong>
+                  {processingBooking
+                    ? processingBooking.farmer_name
+                    : "No farmer"}
+                </strong>
+              </div>
 
-        </div>
-        {/* Reports & Analytics */}
-        <div className="reports-section">
+              <div className="queue-card">
+                <span>Waiting Farmers</span>
+                <strong>
+                  {dashboardData ? dashboardData.current_queue : "..."}
+                </strong>
+              </div>
 
-          <h2>📊 Reports & Analytics</h2>
-
-          <p className="reports-subtitle">
-            Analyse procurement, farmer visits and queue performance
-          </p>
-
-          <div className="report-grid">
-
-            <div className="report-card">
-              <span>Daily Procurement</span>
-              <strong>
-                {dashboardData ? `${dashboardData.procured} Q` : "..."}
-              </strong>
-              <p>
-                {dashboardData
-                  ? `${Math.round(
-                    (dashboardData.procured / dashboardData.daily_target) * 100
-                  )}% of daily target`
-                  : "..."}
-              </p>
+              <div className="queue-card">
+                <span>Estimated Wait</span>
+                <strong>
+                  {dashboardData
+                    ? `${dashboardData.average_waiting_time} min`
+                    : "..."}
+                </strong>
+              </div>
             </div>
 
-            <div className="report-card">
-              <span>Farmer Visits</span>
-              <strong>
-                {dashboardData ? dashboardData.todays_farmers : "..."}
-              </strong>
-              <p>Farmers served today</p>
-            </div>
-
-            <div className="report-card">
-              <span>Average Waiting Time</span>
-              <strong>
-                {dashboardData
-                  ? `${dashboardData.average_waiting_time} min`
-                  : "..."}
-              </strong>
-              <p>Based on current queue</p>
-            </div>
-
-            <div className="report-card">
-              <span>Queue Efficiency</span>
-              <strong>86%</strong>
-              <p>Good performance</p>
-            </div>
-
-          </div>
-
-          {/* Procurement Summary */}
-          <div className="report-table">
-
-            <h3>🌾 Procurement Summary</h3>
+            <h3>Live Queue</h3>
 
             <table>
-
               <thead>
                 <tr>
-                  <th>Centre</th>
-                  <th>Procurement</th>
-                  <th>Target</th>
-                  <th>Achievement</th>
+                  <th>Token</th>
+                  <th>Farmer</th>
+                  <th>Crop</th>
+                  <th>Quantity</th>
+                  <th>Status</th>
                 </tr>
               </thead>
 
               <tbody>
-
-                <tr>
-                  <td>Bhimavaram Centre</td>
-                  <td>720 Q</td>
-                  <td>1000 Q</td>
-                  <td>72%</td>
-                </tr>
-
-                <tr>
-                  <td>Tanuku Centre</td>
-                  <td>650 Q</td>
-                  <td>900 Q</td>
-                  <td>72%</td>
-                </tr>
-
-                <tr>
-                  <td>Palakollu Centre</td>
-                  <td>810 Q</td>
-                  <td>1000 Q</td>
-                  <td>81%</td>
-                </tr>
-
-                <tr>
-                  <td>Narasapur Centre</td>
-                  <td>590 Q</td>
-                  <td>850 Q</td>
-                  <td>69%</td>
-                </tr>
-
+                {bookingData.length > 0 ? (
+                  bookingData.map((booking) => (
+                    <tr key={booking.booking_id}>
+                      <td>#{booking.booking_id}</td>
+                      <td>{booking.farmer_name}</td>
+                      <td>{booking.crop}</td>
+                      <td>
+                        {booking.quantity !== undefined
+                          ? `${booking.quantity} kg`
+                          : "—"}
+                      </td>
+                      <td>
+                        <strong>{getBookingStatus(booking)}</strong>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5">No farmers currently in queue</td>
+                  </tr>
+                )}
               </tbody>
-
             </table>
+          </section>
+        )}
 
-          </div>
-
-          {/* Performance Indicators */}
-          <div className="performance-indicators">
-
-            <h3>📈 Performance Indicators</h3>
-
-            <div className="indicator-item">
-              <span>Procurement Target Achievement</span>
-
-              <strong>
-                {dashboardData
-                  ? `${Math.round(
-                    (dashboardData.procured / dashboardData.daily_target) * 100
-                  )}%`
-                  : "..."}
-              </strong>
+        {/* ======================================================
+            PROCUREMENT
+        ====================================================== */}
+        {dashboardSection === "procurement" && (
+          <>
+            <div className="header">
+              <h1>Procurement</h1>
+              <p>Monitor today's procurement target and progress.</p>
             </div>
 
-            <div className="indicator-item">
-              <span>Queue Efficiency</span>
-              <strong>86%</strong>
+            <div className="bottom-section">
+              <div className="progress-panel">
+                <h2>🌾 Procurement Progress</h2>
+
+                <div className="progress-info">
+                  <span>Daily Target</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.daily_target} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+
+                <div className="progress-info">
+                  <span>Procured</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.procured} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.min(targetPercentage, 100)}%` }}
+                  ></div>
+                </div>
+
+                <p className="progress-text">
+                  {dashboardData
+                    ? dashboardData.daily_target > 0
+                      ? `${targetPercentage}% of today's target completed`
+                      : "No daily target set"
+                    : "..."}
+                </p>
+
+                <div className="progress-info">
+                  <span>Remaining</span>
+                  <strong>
+                    {dashboardData
+                      ? `${dashboardData.remaining} Quintals`
+                      : "..."}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="status-panel">
+                <h2>🏢 Centre Procurement Status</h2>
+
+                {centreData.length > 0 ? (
+                  centreData.map((centre, index) => (
+                    <div className="status-item" key={index}>
+                      <span>{centre.centre}</span>
+                      <strong>{centre.procurement} Q</strong>
+                    </div>
+                  ))
+                ) : (
+                  <p>No procurement centre data available.</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ======================================================
+            REPORTS
+        ====================================================== */}
+        {dashboardSection === "reports" && (
+          <>
+            <div className="header">
+              <h1>Reports & Analytics</h1>
+              <p>
+                Analyse procurement, farmer visits, centres and queue
+                performance.
+              </p>
             </div>
 
-            <div className="indicator-item">
-              <span>Centre Utilization</span>
-              <strong>78%</strong>
+            <div className="report-grid">
+              <div className="report-card">
+                <span>Daily Procurement</span>
+                <strong>
+                  {dashboardData ? `${dashboardData.procured} Q` : "..."}
+                </strong>
+                <p>
+                  {dashboardData
+                    ? dashboardData.daily_target > 0
+                      ? `${targetPercentage}% of daily target`
+                      : "No daily target set"
+                    : "..."}
+                </p>
+              </div>
+
+              <div className="report-card">
+                <span>Farmer Visits</span>
+                <strong>
+                  {dashboardData ? dashboardData.todays_farmers : "..."}
+                </strong>
+                <p>Farmers served today</p>
+              </div>
+
+              <div className="report-card">
+                <span>Average Waiting Time</span>
+                <strong>
+                  {dashboardData
+                    ? `${dashboardData.average_waiting_time} min`
+                    : "..."}
+                </strong>
+                <p>Based on current queue</p>
+              </div>
+
+              <div className="report-card">
+                <span>Procurement Centres</span>
+                <strong>{centreData.length}</strong>
+                <p>Centres returned by the dashboard API</p>
+              </div>
             </div>
 
-          </div>
+            <div className="admin-section">
+              <h2>🏛️ Centre-wise Performance</h2>
 
-        </div>
+              <div className="centre-performance">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Centre</th>
+                      <th>Farmers</th>
+                      <th>Queue</th>
+                      <th>Procurement</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {centreData.length > 0 ? (
+                      centreData.map((centre, index) => (
+                        <tr key={index}>
+                          <td>{centre.centre}</td>
+                          <td>{centre.farmers}</td>
+                          <td>{centre.queue}</td>
+                          <td>{centre.procurement} Q</td>
+                          <td>{centre.status}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="5">
+                          No procurement centre data available
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="system-alerts">
+                <h3>🚨 System Alerts</h3>
+
+                {alertsData.length > 0 ? (
+                  alertsData.map((alert, index) => (
+                    <div className="alert-item" key={index}>
+                      <strong>
+                        {alert.type === "warning" ? "⚠️" : "🤖"} {alert.title}
+                      </strong>
+                      <p>{alert.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p>No system alerts available.</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ======================================================
+            SETTINGS
+        ====================================================== */}
+        {dashboardSection === "settings" && (
+          <section className="settings-section">
+            <div className="header">
+              <h1>Settings</h1>
+              <p>Dashboard settings and system information.</p>
+            </div>
+
+            <div className="status-panel">
+              <h2>⚙️ Dashboard Information</h2>
+
+              <div className="status-item">
+                <span>Dashboard Data</span>
+                <strong>{dashboardData ? "Connected" : "Loading"}</strong>
+              </div>
+
+              <div className="status-item">
+                <span>Booking Data</span>
+                <strong>{bookingData.length} records</strong>
+              </div>
+
+              <div className="status-item">
+                <span>Centre Data</span>
+                <strong>{centreData.length} centres</strong>
+              </div>
+
+              <div className="status-item">
+                <span>System Alerts</span>
+                <strong>{alertsData.length} alerts</strong>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
-
     </div>
   );
 }
+function LoginPage({ onLogin }) {
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState("phone");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  const requestOtp = async () => {
+    if (!phone.trim()) {
+      setMessage("Please enter your registered mobile number.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${AUTH_API_URL}/farmers/auth/request-otp`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            phone: phone.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Unable to send OTP.");
+      }
+
+      setStep("otp");
+      setMessage("OTP sent successfully. Use the prototype OTP provided by the system.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    if (!otp.trim()) {
+      setMessage("Please enter the OTP.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${AUTH_API_URL}/farmers/auth/verify-otp`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            phone: phone.trim(),
+            otp: otp.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "OTP verification failed.");
+      }
+
+      onLogin(data);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="page login-page">
+      <section className="login-card">
+        <div className="login-icon">🌾</div>
+
+        <span className="login-eyebrow">
+          FARMER ACCESS
+        </span>
+
+        <h1>
+          Welcome back to <span>GrainFlow</span>
+        </h1>
+
+        <p>
+          Login with your registered mobile number to access your
+          farmer profile, bookings and procurement journey.
+        </p>
+
+        {step === "phone" ? (
+          <>
+            <label>Registered mobile number</label>
+
+            <input
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="Enter your mobile number"
+              maxLength="15"
+            />
+
+            <button
+              className="primary-button login-button"
+              onClick={requestOtp}
+              disabled={loading}
+            >
+              {loading ? "Sending..." : "Send OTP"}
+              <span>→</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <label>Enter OTP</label>
+
+            <input
+              type="text"
+              value={otp}
+              onChange={(event) => setOtp(event.target.value)}
+              placeholder="Enter 6-digit OTP"
+              maxLength="6"
+            />
+
+            <button
+              className="primary-button login-button"
+              onClick={verifyOtp}
+              disabled={loading}
+            >
+              {loading ? "Verifying..." : "Verify & Login"}
+              <span>✓</span>
+            </button>
+
+            <button
+              className="login-back-button"
+              onClick={() => {
+                setStep("phone");
+                setOtp("");
+                setMessage("");
+              }}
+            >
+              ← Change mobile number
+            </button>
+          </>
+        )}
+
+        {message && (
+          <div className="login-message">
+            {message}
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
 export default App;
